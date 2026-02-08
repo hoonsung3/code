@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>테트리스</title>
+    <style>
+        body {
+            background: #202028;
+            color: #fff;
+            font-family: 'Malgun Gothic', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            border: 4px solid #ff0000;
+        }
+        canvas {
+            display: block;
+            background-color: #000;
+        }
+        h1 { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>테트리스</h1>
+    <div id="game-container">
+        <canvas id="tetris" width="300" height="600"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tetris');
+        const context = canvas.getContext('2d');
+        const grid_size = 30;
+
+        // --- [설정값 및 블록 모양] ---
+        const SHAPES = {
+            'S': [[[0,1,1],[1,1,0],[0,0,0]], [[0,1,0],[0,1,1],[0,0,1]]],
+            'Z': [[[1,1,0],[0,1,1],[0,0,0]], [[0,0,1],[0,1,1],[0,1,0]]],
+            'I': [[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], [[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]]],
+            'O': [[[1,1],[1,1]]],
+            'J': [[[1,0,0],[1,1,1],[0,0,0]], [[0,1,1],[0,1,0],[0,1,0]], [[1,1,1],[0,0,1],[0,0,0]], [[0,1,0],[0,1,0],[1,1,0]]],
+            'L': [[[0,0,1],[1,1,1],[0,0,0]], [[0,1,0],[0,1,0],[0,1,1]], [[1,1,1],[1,0,0],[0,0,0]], [[1,1,0],[0,1,0],[0,1,0]]],
+            'T': [[[0,1,0],[1,1,1],[0,0,0]], [[0,1,0],[0,1,1],[0,1,0]], [[1,1,1],[0,1,0],[0,0,0]], [[0,1,0],[1,1,0],[0,1,0]]]
+        };
+
+        const COLORS = [
+            null, '#00ff00', '#ff0000', '#00ffff', '#ffff00', '#ffa500', '#0000ff', '#800080'
+        ];
+
+        // --- [게임 상태 변수] ---
+        let arena = createMatrix(10, 20);
+        let player = {
+            pos: {x: 0, y: 0},
+            matrix: null,
+            color: 0
+        };
+        let gameState = 'MENU'; // MENU, PLAYING, LOST
+
+        // --- [핵심 함수들] ---
+
+        function createMatrix(w, h) {
+            const matrix = [];
+            while (h--) { matrix.push(new Array(w).fill(0)); }
+            return matrix;
+        }
+
+        function draw() {
+            // 화면 지우기
+            context.fillStyle = '#000';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === 'MENU') {
+                drawText("아무 키나 눌러봐", 25);
+                return;
+            }
+
+            drawMatrix(arena, {x: 0, y: 0});
+            drawMatrix(player.matrix, player.pos, player.color);
+            drawGridLines();
+
+            if (gameState === 'LOST') {
+                drawText("YOU LOST!", 40);
+            }
+        }
+
+        function drawMatrix(matrix, offset, colorIdx) {
+            matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        context.fillStyle = COLORS[colorIdx || value];
+                        context.fillRect((x + offset.x) * grid_size, (y + offset.y) * grid_size, grid_size, grid_size);
+                        // 테두리
+                        context.strokeStyle = '#222';
+                        context.strokeRect((x + offset.x) * grid_size, (y + offset.y) * grid_size, grid_size, grid_size);
+                    }
+                });
+            });
+        }
+
+        function drawGridLines() {
+            context.strokeStyle = '#444';
+            context.lineWidth = 0.5;
+            for(let i=0; i<=canvas.width; i+=grid_size) {
+                context.beginPath(); context.moveTo(i,0); context.lineTo(i, canvas.height); context.stroke();
+            }
+            for(let i=0; i<=canvas.height; i+=grid_size) {
+                context.beginPath(); context.moveTo(0,i); context.lineTo(canvas.width, i); context.stroke();
+            }
+        }
+
+        function drawText(text, size) {
+            context.fillStyle = "white";
+            context.font = `bold ${size}px 'Malgun Gothic'`;
+            context.textAlign = "center";
+            context.fillText(text, canvas.width / 2, canvas.height / 2);
+        }
+
+        function playerReset() {
+            const pieces = 'SZIJLTT';
+            const type = pieces[pieces.length * Math.random() | 0];
+            player.matrix = SHAPES[type][0];
+            player.color = "SZIJLOT".indexOf(type) + 1;
+            player.pos.y = 0;
+            player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+            
+            if (collide(arena, player)) {
+                gameState = 'LOST';
+            }
+        }
+
+        function playerDrop() {
+            player.pos.y++;
+            if (collide(arena, player)) {
+                player.pos.y--;
+                merge(arena, player);
+                playerReset();
+                arenaSweep();
+            }
+            dropCounter = 0;
+        }
+
+        function playerMove(dir) {
+            player.pos.x += dir;
+            if (collide(arena, player)) { player.pos.x -= dir; }
+        }
+
+        function playerRotate() {
+            const pos = player.pos.x;
+            let offset = 1;
+            rotate(player.matrix);
+            while (collide(arena, player)) {
+                player.pos.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1));
+                if (offset > player.matrix[0].length) {
+                    rotate(player.matrix, -1);
+                    player.pos.x = pos;
+                    return;
+                }
+            }
+        }
+
+        function rotate(matrix, dir = 1) {
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < y; ++x) {
+                    [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+                }
+            }
+            if (dir > 0) { matrix.forEach(row => row.reverse()); }
+            else { matrix.reverse(); }
+        }
+
+        function collide(arena, player) {
+            const [m, o] = [player.matrix, player.pos];
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function merge(arena, player) {
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        arena[y + player.pos.y][x + player.pos.x] = player.color;
+                    }
+                });
+            });
+        }
+
+        function arenaSweep() {
+            outer: for (let y = arena.length - 1; y > 0; --y) {
+                for (let x = 0; x < arena[y].length; ++x) {
+                    if (arena[y][x] === 0) continue outer;
+                }
+                const row = arena.splice(y, 1)[0].fill(0);
+                arena.unshift(row);
+                ++y;
+            }
+        }
+
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let lastTime = 0;
+
+        function update(time = 0) {
+            if (gameState === 'PLAYING') {
+                const deltaTime = time - lastTime;
+                lastTime = time;
+                dropCounter += deltaTime;
+                if (dropCounter > dropInterval) { playerDrop(); }
+            }
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        // --- [이벤트 리스너] ---
+        document.addEventListener('keydown', event => {
+            if (gameState === 'MENU') {
+                gameState = 'PLAYING';
+                arena = createMatrix(10, 20);
+                playerReset();
+                update();
+                return;
+            }
+
+            if (gameState === 'LOST') {
+                gameState = 'MENU';
+                return;
+            }
+
+            if (event.keyCode === 37) { playerMove(-1); } // Left
+            else if (event.keyCode === 39) { playerMove(1); } // Right
+            else if (event.keyCode === 40) { playerDrop(); } // Down
+            else if (event.keyCode === 38) { playerRotate(); } // Up
+            else if (event.key === 's' || event.key === 'S') { // 치트키
+                player.matrix = SHAPES['I'][0];
+                player.color = 3;
+            }
+        });
+
+        draw(); // 초기 메뉴 화면 그리기
+    </script>
+</body>
+</html>
